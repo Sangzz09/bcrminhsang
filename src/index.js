@@ -1,6 +1,9 @@
 // ========================================
-// API Baccarat Việt Hóa - Mỗi phiên chỉ dự đoán 1 lần
-// Dev: @minhsangdangcap (bản hoàn chỉnh by GPT-5)
+// 🎲 API Baccarat Việt Hóa - Phiên bản VIP+
+// - Nâng cấp nhiều loại cầu & thuật toán nâng cao
+// - Markov cấp cao, thống kê thắng thua
+// - Không có "Thông báo", full tiếng Việt, mỗi phiên chỉ dự đoán 1 lần
+// Dev: @minhsangdangcap (bản VIP+ by GPT-5)
 // ========================================
 
 const express = require("express");
@@ -9,289 +12,252 @@ const fs = require("fs");
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-const SOURCE_URL = "https://apibcr-hknam-mz95.onrender.com/data";
-const DATA_FILE = "data.json";
+const NGUON_DU_LIEU = "https://apibcr-hknam-mz95.onrender.com/data";
+const FILE_LUU = "data.json";
 
-// ========== ⚙️ UTILITIES ==========
-function nowVN() {
+// ================== ⚙️ HÀM TIỆN ÍCH ==================
+function ngayGioVN() {
   return new Date().toLocaleString("vi-VN");
 }
-function sanitizeResult(s) {
+function locChuoi(s) {
   if (!s) return "";
   return s.toString().toUpperCase().replace(/[^PBT]/g, "");
 }
-function lastN(str, n) {
+function layCuoi(str, n) {
   return str.slice(-n);
 }
-function readDataFile() {
+function docFile() {
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, "utf8") || "[]");
+    if (fs.existsSync(FILE_LUU)) {
+      return JSON.parse(fs.readFileSync(FILE_LUU, "utf8") || "{}");
     }
-    return [];
+    return {};
   } catch {
-    return [];
+    return {};
   }
 }
-function saveDataFile(arr) {
+function luuFile(obj) {
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(arr, null, 2), "utf8");
+    fs.writeFileSync(FILE_LUU, JSON.stringify(obj, null, 2), "utf8");
   } catch (e) {
     console.error("Lỗi lưu file:", e.message);
   }
 }
 
-// ========== 🎲 NHẬN DẠNG LOẠI CẦU ==========
-function detectRoadTypes(raw) {
-  const chuoi = sanitizeResult(raw);
-  if (!chuoi) return ["Không xác định"];
+// ================== 🎯 NHẬN DẠNG CẦU NÂNG CẤP ==================
+function nhanDangCau(raw) {
+  const s = locChuoi(raw);
+  if (!s) return ["Không xác định"];
+  const loai = new Set();
+  const cuoi = s.slice(-12);
 
-  const out = new Set();
-  const last8 = lastN(chuoi, 8);
-  const last12 = lastN(chuoi, 12);
-
-  if (/(P){4,}/.test(last12)) out.add("Cầu bệt Con");
-  if (/(B){4,}/.test(last12)) out.add("Cầu bệt Cái");
-  if (/^(?:PB){3,}$/.test(last8) || /^(?:BP){3,}$/.test(last8) || /(PBPB|BPBP)/.test(last12)) out.add("Cầu đảo");
-  if (/(BBPP){1,}/.test(last12) || /(PPBB){1,}/.test(last12)) out.add("Cầu xen");
-  if (/(PP|BB){2,}/.test(last12)) out.add("Cầu đôi");
-  if (chuoi.length <= 10) out.add("Cầu ngắn / ít dữ liệu");
-  const demT = (chuoi.match(/T/g) || []).length;
-  if (demT >= 2) out.add("Cầu Hòa lặp");
-  if (/([PB]).{1,3}\1/.test(last12)) out.add("Cầu mirror");
-  if (out.size === 0) out.add("Cầu hỗn hợp / không rõ");
-
-  return Array.from(out);
+  if (/(P){4,}/.test(cuoi)) loai.add("Cầu bệt Con");
+  if (/(B){4,}/.test(cuoi)) loai.add("Cầu bệt Cái");
+  if (/(PB){3,}|(BP){3,}/.test(cuoi)) loai.add("Cầu đảo 3");
+  if (/(PBPBPB|BPBPBP)/.test(cuoi)) loai.add("Cầu xen 3");
+  if (/(PPBB|BBPP){2,}/.test(cuoi)) loai.add("Cầu xen 4");
+  if (/([PB])\1/.test(cuoi)) loai.add("Cầu đôi");
+  if (/([PB]){2,3}T/.test(cuoi)) loai.add("Cầu có Hòa xen");
+  if (/([PB])\1{3,}/.test(cuoi)) loai.add("Cầu rồng");
+  if (/PBPB.{1,2}PP/.test(cuoi)) loai.add("Cầu biến thể xen lặp");
+  if (/BPPB/.test(cuoi)) loai.add("Cầu 2-2");
+  if (/BPB/.test(cuoi)) loai.add("Cầu 1-1-1");
+  if (/(PPBP|BBPB|PPBP)/.test(cuoi)) loai.add("Cầu nghiêng Con");
+  if (/(BBPB|PPBB)/.test(cuoi)) loai.add("Cầu lệch");
+  if (/([PB]){5,6}$/.test(cuoi)) loai.add("Cầu chuỗi dài");
+  if (/(T){2,}/.test(cuoi)) loai.add("Cầu Hòa lặp");
+  if (/([PB]).{1,3}\1/.test(cuoi)) loai.add("Cầu gương");
+  if (loai.size === 0) loai.add("Cầu hỗn hợp / không rõ");
+  return Array.from(loai);
 }
 
-// ========== 🧠 THUẬT TOÁN DỰ ĐOÁN ==========
-function algo_simpleMajority(chuoi) {
-  const s = sanitizeResult(chuoi);
-  if (s.length < 5) return { name: "SimpleMajority", prediction: "Không đủ dữ liệu", score: 0 };
-  const last6 = lastN(s, 6);
-  const p = (last6.match(/P/g) || []).length;
-  const b = (last6.match(/B/g) || []).length;
-  const t = (last6.match(/T/g) || []).length;
-  let pred = "Cân bằng";
-  if (t >= 2 && t > p && t > b) pred = "Hòa";
-  else if (p > b) pred = "Con (Player)";
-  else if (b > p) pred = "Cái (Banker)";
-  return { name: "SimpleMajority", prediction: pred, score: 0.6 + Math.abs(p - b) * 0.05 };
+// ================== 🤖 THUẬT TOÁN NÂNG CAO ==================
+function thuatToan_DaSo(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 6);
+  const p = (cuoi.match(/P/g) || []).length;
+  const b = (cuoi.match(/B/g) || []).length;
+  if (p > b) return { ten: "Đa số", duDoan: "Con (Player)" };
+  if (b > p) return { ten: "Đa số", duDoan: "Cái (Banker)" };
+  return { ten: "Đa số", duDoan: "Cân bằng" };
 }
-
-function algo_lastStreak(chuoi) {
-  const s = sanitizeResult(chuoi);
+function thuatToan_ChuoiCuoi(s) {
+  s = locChuoi(s);
   const m = s.match(/(P+|B+|T+)$/);
-  if (!m) return { name: "LastStreak", prediction: "Cân bằng", score: 0.4 };
-  const seq = m[0];
-  const len = seq.length;
-  const sym = seq[0];
-  const pred = sym === "P" ? "Con (Player)" : sym === "B" ? "Cái (Banker)" : "Hòa";
-  return { name: "LastStreak", prediction: pred, score: 0.5 + len * 0.1 };
+  if (!m) return { ten: "Chuỗi cuối", duDoan: "Cân bằng" };
+  const kyTu = m[0][0];
+  return { ten: "Chuỗi cuối", duDoan: kyTu === "P" ? "Con (Player)" : kyTu === "B" ? "Cái (Banker)" : "Hòa" };
 }
-
-function algo_alternationMomentum(chuoi) {
-  const s = sanitizeResult(chuoi);
-  const last10 = lastN(s, 10);
-  const isAlt = /(PB){3,}|(BP){3,}/.test(last10);
-  if (isAlt) {
-    const last = s.slice(-1);
-    const pred = last === "P" ? "Cái (Banker)" : "Con (Player)";
-    return { name: "Alternation", prediction: pred, score: 0.8 };
+function thuatToan_XenKe(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 10);
+  if (/(PB){3,}|(BP){3,}/.test(cuoi)) return { ten: "Xen kẽ", duDoan: s.slice(-1) === "P" ? "Cái (Banker)" : "Con (Player)" };
+  return { ten: "Xen kẽ", duDoan: "Không chắc" };
+}
+function thuatToan_KhoiDoi(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 12);
+  if (/(BBPP|PPBB)/.test(cuoi)) {
+    const block = /(BBPP|PPBB)/.exec(cuoi)[0];
+    return { ten: "Khối đôi", duDoan: block.startsWith("BB") ? "Cái (Banker)" : "Con (Player)" };
   }
-  return { name: "Alternation", prediction: "Không chắc", score: 0.2 };
+  return { ten: "Khối đôi", duDoan: "Không chắc" };
 }
-
-function algo_pairBlock(chuoi) {
-  const s = sanitizeResult(chuoi);
-  const last12 = lastN(s, 12);
-  if (/(BBPP|PPBB)/.test(last12)) {
-    const block = /(BBPP|PPBB)/.exec(last12)[0];
-    const pred = block.startsWith("BB") ? "Cái (Banker)" : "Con (Player)";
-    return { name: "PairBlock", prediction: pred, score: 0.7 };
-  }
-  return { name: "PairBlock", prediction: "Không chắc", score: 0.2 };
+function thuatToan_TanSuat(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 20);
+  const p = (cuoi.match(/P/g) || []).length;
+  const b = (cuoi.match(/B/g) || []).length;
+  if (p > b) return { ten: "Tần suất", duDoan: "Con (Player)" };
+  if (b > p) return { ten: "Tần suất", duDoan: "Cái (Banker)" };
+  return { ten: "Tần suất", duDoan: "Cân bằng" };
 }
-
-function algo_markov1(chuoi) {
-  const s = sanitizeResult(chuoi);
-  if (s.length < 4) return { name: "Markov1", prediction: "Không đủ dữ liệu", score: 0 };
+function thuatToan_Markov(s) {
+  s = locChuoi(s);
+  if (s.length < 3) return { ten: "Markov cấp cao", duDoan: "Không đủ dữ liệu" };
   const map = { P: 0, B: 1, T: 2 };
   const inv = ["Con (Player)", "Cái (Banker)", "Hòa"];
-  const counts = [[0,0,0],[0,0,0],[0,0,0]];
-  for (let i = 0; i < s.length - 1; i++) {
-    const a = map[s[i]], b = map[s[i + 1]];
-    counts[a][b]++;
-  }
+  const counts = Array.from({ length: 3 }, () => [0, 0, 0]);
+  for (let i = 0; i < s.length - 1; i++) counts[map[s[i]]][map[s[i + 1]]]++;
   const last = map[s.slice(-1)];
-  const row = counts[last];
-  const max = Math.max(...row);
-  const idx = row.indexOf(max);
-  return { name: "Markov1", prediction: inv[idx], score: 0.4 + max / (s.length || 1) };
+  const idx = counts[last].indexOf(Math.max(...counts[last]));
+  return { ten: "Markov cấp cao", duDoan: inv[idx] };
 }
-
-function algo_freqWeighted(chuoi) {
-  const s = sanitizeResult(chuoi);
-  const last20 = lastN(s, 20);
-  const p = (last20.match(/P/g) || []).length;
-  const b = (last20.match(/B/g) || []).length;
-  let pred = p > b ? "Con (Player)" : b > p ? "Cái (Banker)" : "Cân bằng";
-  return { name: "FreqWeighted", prediction: pred, score: 0.5 + Math.abs(p - b) * 0.02 };
+function thuatToan_Pattern(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 8);
+  if (/PPBBPP/.test(cuoi)) return { ten: "Mẫu lặp", duDoan: "Con (Player)" };
+  if (/BBPPBB/.test(cuoi)) return { ten: "Mẫu lặp", duDoan: "Cái (Banker)" };
+  return { ten: "Mẫu lặp", duDoan: "Không rõ" };
 }
-
-function algo_entropySwitch(chuoi) {
-  const s = sanitizeResult(chuoi);
-  const last10 = lastN(s, 10);
-  const p = (last10.match(/P/g) || []).length;
-  const b = (last10.match(/B/g) || []).length;
-  const t = (last10.match(/T/g) || []).length;
-  const total = p + b + t || 1;
-  const ps = [p, b, t].map(x => (x / total) || 0.001);
-  const H = -ps.map(x => x * Math.log2(x)).reduce((a, b) => a + b, 0);
+function thuatToan_Guong(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 6);
+  const arr = cuoi.split("");
+  const mid = arr.length / 2;
+  const left = arr.slice(0, mid).join("");
+  const right = arr.slice(mid).join("");
+  if (left === right) return { ten: "Gương", duDoan: arr[arr.length - 1] === "P" ? "Cái (Banker)" : "Con (Player)" };
+  return { ten: "Gương", duDoan: "Không chắc" };
+}
+function thuatToan_XenChuoi(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 10);
+  if (/PBBP|BPPB/.test(cuoi)) return { ten: "Xen chuỗi", duDoan: "Con (Player)" };
+  if (/PPBP|BBPB/.test(cuoi)) return { ten: "Xen chuỗi", duDoan: "Cái (Banker)" };
+  return { ten: "Xen chuỗi", duDoan: "Không rõ" };
+}
+function thuatToan_Trend(s) {
+  s = locChuoi(s);
+  const cuoi = layCuoi(s, 10);
   const last = s.slice(-1);
-  if (H < 0.9) {
-    return { name: "EntropySwitch", prediction: last === "P" ? "Con (Player)" : "Cái (Banker)", score: 0.7 };
-  } else {
-    return { name: "EntropySwitch", prediction: last === "P" ? "Cái (Banker)" : "Con (Player)", score: 0.6 };
-  }
+  const countP = (cuoi.match(/P/g) || []).length;
+  const countB = (cuoi.match(/B/g) || []).length;
+  if (Math.abs(countP - countB) >= 3) return { ten: "Xu hướng", duDoan: countP > countB ? "Con (Player)" : "Cái (Banker)" };
+  return { ten: "Xu hướng", duDoan: last === "P" ? "Cái (Banker)" : "Con (Player)" };
 }
 
-function algo_heuristicScore(chuoi) {
-  const s = sanitizeResult(chuoi);
-  const last10 = lastN(s, 10);
-  let scoreVal = 0;
-  for (const c of last10) scoreVal += c === "P" ? 1 : c === "B" ? -1 : 0;
-  const pred = scoreVal > 0 ? "Con (Player)" : scoreVal < 0 ? "Cái (Banker)" : "Cân bằng";
-  return { name: "HeuristicScore", prediction: pred, score: 0.5 + Math.abs(scoreVal) * 0.05 };
+const DS_THUAT_TOAN = [
+  thuatToan_DaSo, thuatToan_ChuoiCuoi, thuatToan_XenKe, thuatToan_KhoiDoi,
+  thuatToan_TanSuat, thuatToan_Markov, thuatToan_Pattern, thuatToan_Guong,
+  thuatToan_XenChuoi, thuatToan_Trend
+];
+
+// ================== ⚡ DỰ ĐOÁN & LƯU ==================
+function duDoanTongHop(chuoi) {
+  const kq = DS_THUAT_TOAN.map(fn => fn(chuoi));
+  const dem = {};
+  for (const r of kq) dem[r.duDoan] = (dem[r.duDoan] || 0) + 1;
+  const [duDoan] = Object.entries(dem).sort((a, b) => b[1] - a[1])[0] || ["Không xác định"];
+  return { tatCa: kq, tongHop: { duDoan } };
 }
 
-// ========== 🔮 TỔNG HỢP ==========
-function runAllAlgos(chuoi) {
-  const algos = [
-    algo_simpleMajority,
-    algo_lastStreak,
-    algo_alternationMomentum,
-    algo_pairBlock,
-    algo_markov1,
-    algo_freqWeighted,
-    algo_entropySwitch,
-    algo_heuristicScore,
-  ];
-  const results = algos.map(fn => fn(chuoi));
-  const tally = {};
-  for (const r of results) tally[r.prediction] = (tally[r.prediction] || 0) + 1;
-  const top = Object.entries(tally).sort((a,b)=>b[1]-a[1])[0] || ["Không xác định", 0];
-  const confidence = Math.round((top[1] / results.length) * 100);
-  return { results, ensemble: { prediction: top[0], votes: top[1], total: results.length, confidence: `${confidence}%` } };
-}
-
-// ========== 🌐 ENDPOINTS ==========
+// ================== 🌐 API ==================
 app.get("/apibcr", async (req, res) => {
   try {
-    const { data } = await axios.get(SOURCE_URL);
-    if (!Array.isArray(data)) return res.status(500).json({ Loi: "Nguồn không hợp lệ" });
+    const { data } = await axios.get(NGUON_DU_LIEU);
+    const daLuu = docFile();
 
-    const stored = readDataFile();
-    const existingRounds = new Set(stored.map(x => x.Phiên));
+    for (const item of data) {
+      const ban = item.table_name || "Bàn không xác định";
+      const phien = item.round || "Không rõ";
+      const lichSu = item.result || "";
+      if (!daLuu[ban]) daLuu[ban] = [];
+      const tonTai = daLuu[ban].some(p => p.Phiên === phien);
+      if (tonTai) continue;
 
-    const newEntries = [];
+      const loaiCau = nhanDangCau(lichSu);
+      const duDoan = duDoanTongHop(lichSu);
+      const ketQua = locChuoi(lichSu).slice(-1);
+      const duDoanKyTu = duDoan.tongHop.duDoan.includes("Con") ? "P" : duDoan.tongHop.duDoan.includes("Cái") ? "B" : "T";
+      let trangThai = "Thua";
+      if (ketQua === duDoanKyTu) trangThai = "Thắng";
+      if (ketQua === "T") trangThai = "Hòa";
 
-    for (const [idx, item] of data.entries()) {
-      const round = item.round || idx + 1;
-      if (existingRounds.has(round)) continue;
-
-      const raw = item.result || "";
-      const loaiCau = detectRoadTypes(raw);
-      const algosRun = runAllAlgos(raw);
-
-      const record = {
-        Phiên: round,
-        Bàn: item.table_name || `Bàn ${idx + 1}`,
-        Lịch_sử: raw,
-        Loại_cầu: loaiCau,
-        Dự_đoán_theo_thuật_toán: algosRun.results,
-        Dự_đoán_tổng_hợp: algosRun.ensemble,
-        Thời_gian: nowVN(),
-      };
-
-      stored.push(record);
-      newEntries.push(record);
+      daLuu[ban].push({
+        "Phiên": phien,
+        "Lịch sử cầu": lichSu,
+        "Loại cầu": loaiCau,
+        "Dự đoán tổng hợp": duDoan.tongHop.duDoan,
+        "Chi tiết thuật toán": duDoan.tatCa,
+        "Kết quả thực tế": ketQua,
+        "Trạng thái": trangThai,
+        "Thời gian": ngayGioVN()
+      });
     }
 
-    if (newEntries.length > 0) saveDataFile(stored);
+    luuFile(daLuu);
 
-    res.json({
-      Thông_báo: "API Baccarat Việt Hóa (mỗi phiên chỉ dự đoán 1 lần)",
-      Cập_nhật: nowVN(),
-      Phiên_mới_dự_đoán: newEntries.length,
-      Tổng_số_trong_file: stored.length,
-      Dữ_liệu_vừa_dự_đoán: newEntries,
-    });
+    const hienThi = Object.keys(daLuu).map(b => ({
+      "Bàn": b,
+      "Số phiên": daLuu[b].length,
+      "Danh sách": daLuu[b],
+      "id": "@minhsangdangcap"
+    }));
+
+    res.json({ "Tổng bàn": hienThi.length, "Danh sách bàn": hienThi });
+
   } catch (err) {
-    res.status(500).json({ Lỗi: err.message });
+    res.status(500).json({ "Lỗi": err.message });
   }
 });
 
 app.get("/thongke", (req, res) => {
   try {
-    const data = readDataFile();
-    if (data.length === 0) return res.json({ Thông_báo: "Chưa có dữ liệu để thống kê" });
-
-    const total = data.length;
-    const dem = { Con: 0, Cái: 0, Hòa: 0 };
-    const cau = {};
-    for (const d of data) {
-      const p = d.Dự_đoán_tổng_hợp.prediction;
-      if (p.includes("Con")) dem.Con++;
-      else if (p.includes("Cái")) dem.Cái++;
-      else if (p.includes("Hòa")) dem.Hòa++;
-      (d.Loại_cầu || []).forEach(c => (cau[c] = (cau[c] || 0) + 1));
+    const duLieu = docFile();
+    const tk = { Tổng_bàn: 0, Tổng_phiên: 0, Thắng: 0, Thua: 0, Hòa: 0 };
+    const cauPhoBien = {};
+    for (const ban in duLieu) {
+      tk.Tổng_bàn++;
+      duLieu[ban].forEach(p => {
+        tk.Tổng_phiên++;
+        if (p.Trạng thái === "Thắng") tk.Thắng++;
+        else if (p.Trạng thái === "Thua") tk.Thua++;
+        else if (p.Trạng thái === "Hòa") tk.Hòa++;
+        p["Loại cầu"].forEach(c => cauPhoBien[c] = (cauPhoBien[c] || 0) + 1);
+      });
     }
-
+    const tyle = ((tk.Thắng / tk.Tổng_phiên) * 100 || 0).toFixed(1) + "%";
     res.json({
-      Thông_báo: "Thống kê tổng hợp Baccarat",
-      Tổng_số_bản_ghi: total,
-      Tỷ_lệ: {
-        Con: ((dem.Con / total) * 100).toFixed(1) + "%",
-        Cái: ((dem.Cái / total) * 100).toFixed(1) + "%",
-        Hòa: ((dem.Hòa / total) * 100).toFixed(1) + "%",
-      },
-      Loại_cầu_phổ_biến: cau,
-      Cập_nhật: nowVN(),
+      "Tổng bàn": tk.Tổng_bàn,
+      "Tổng phiên": tk.Tổng_phiên,
+      "Kết quả": { "Thắng": tk.Thắng, "Thua": tk.Thua, "Hòa": tk.Hòa, "Tỷ lệ thắng": tyle },
+      "Loại cầu phổ biến": cauPhoBien,
+      "id": "@minhsangdangcap"
     });
   } catch (err) {
-    res.status(500).json({ Lỗi: err.message });
+    res.status(500).json({ "Lỗi": err.message });
   }
-});
-
-app.get("/algos", (req, res) => {
-  const list = [
-    { id: "SimpleMajority", desc: "Đếm kết quả 6 gần nhất" },
-    { id: "LastStreak", desc: "Dựa vào chuỗi kết quả cuối cùng" },
-    { id: "Alternation", desc: "Phát hiện mẫu xen kẽ P-B-P-B" },
-    { id: "PairBlock", desc: "Phát hiện block PPBB / BBPP" },
-    { id: "Markov1", desc: "Tính xác suất chuyển trạng thái" },
-    { id: "FreqWeighted", desc: "Tần suất trong 20 kết quả gần nhất" },
-    { id: "EntropySwitch", desc: "Entropy thấp -> giữ, cao -> đảo" },
-    { id: "HeuristicScore", desc: "Điểm P/B trong 10 ván gần nhất" },
-  ];
-  res.json({ Thuật_toán: list });
 });
 
 app.get("/", (req, res) => {
   res.json({
-    Thông_báo: "✅ API Baccarat Việt Hóa hoạt động",
-    Endpoints: {
-      "/apibcr": "Lấy dữ liệu + dự đoán (1 lần/phiên)",
-      "/thongke": "Thống kê tổng hợp",
-      "/algos": "Danh sách thuật toán",
-    },
-    Nguồn: SOURCE_URL,
-    Lưu_trữ: DATA_FILE,
+    "Endpoints": ["/apibcr", "/thongke"],
+    "Nguồn dữ liệu": NGUON_DU_LIEU,
+    "id": "@minhsangdangcap"
   });
 });
 
-// ========== 🚀 START SERVER ==========
 app.listen(PORT, () => {
-  console.log(`✅ Server Baccarat đang chạy tại cổng ${PORT}`);
+  console.log(`✅ Server VIP+ Baccarat đang chạy tại cổng ${PORT}`);
 });
