@@ -1,8 +1,8 @@
 // ========================================
 // 🎲 API Baccarat Việt Hóa - Phiên bản VIP+
-// - Nâng cấp nhiều loại cầu & thuật toán nâng cao
+// - Nhiều loại cầu & thuật toán nâng cao
 // - Markov cấp cao, thống kê thắng thua
-// - Không có "Thông báo", full tiếng Việt, mỗi phiên chỉ dự đoán 1 lần
+// - Không có "Thông báo", full tiếng Việt
 // Dev: @minhsangdangcap (bản VIP+ by GPT-5)
 // ========================================
 
@@ -123,30 +123,6 @@ function thuatToan_Markov(s) {
   const idx = counts[last].indexOf(Math.max(...counts[last]));
   return { ten: "Markov cấp cao", duDoan: inv[idx] };
 }
-function thuatToan_Pattern(s) {
-  s = locChuoi(s);
-  const cuoi = layCuoi(s, 8);
-  if (/PPBBPP/.test(cuoi)) return { ten: "Mẫu lặp", duDoan: "Con (Player)" };
-  if (/BBPPBB/.test(cuoi)) return { ten: "Mẫu lặp", duDoan: "Cái (Banker)" };
-  return { ten: "Mẫu lặp", duDoan: "Không rõ" };
-}
-function thuatToan_Guong(s) {
-  s = locChuoi(s);
-  const cuoi = layCuoi(s, 6);
-  const arr = cuoi.split("");
-  const mid = arr.length / 2;
-  const left = arr.slice(0, mid).join("");
-  const right = arr.slice(mid).join("");
-  if (left === right) return { ten: "Gương", duDoan: arr[arr.length - 1] === "P" ? "Cái (Banker)" : "Con (Player)" };
-  return { ten: "Gương", duDoan: "Không chắc" };
-}
-function thuatToan_XenChuoi(s) {
-  s = locChuoi(s);
-  const cuoi = layCuoi(s, 10);
-  if (/PBBP|BPPB/.test(cuoi)) return { ten: "Xen chuỗi", duDoan: "Con (Player)" };
-  if (/PPBP|BBPB/.test(cuoi)) return { ten: "Xen chuỗi", duDoan: "Cái (Banker)" };
-  return { ten: "Xen chuỗi", duDoan: "Không rõ" };
-}
 function thuatToan_Trend(s) {
   s = locChuoi(s);
   const cuoi = layCuoi(s, 10);
@@ -158,12 +134,16 @@ function thuatToan_Trend(s) {
 }
 
 const DS_THUAT_TOAN = [
-  thuatToan_DaSo, thuatToan_ChuoiCuoi, thuatToan_XenKe, thuatToan_KhoiDoi,
-  thuatToan_TanSuat, thuatToan_Markov, thuatToan_Pattern, thuatToan_Guong,
-  thuatToan_XenChuoi, thuatToan_Trend
+  thuatToan_DaSo,
+  thuatToan_ChuoiCuoi,
+  thuatToan_XenKe,
+  thuatToan_KhoiDoi,
+  thuatToan_TanSuat,
+  thuatToan_Markov,
+  thuatToan_Trend
 ];
 
-// ================== ⚡ DỰ ĐOÁN & LƯU ==================
+// ================== DỰ ĐOÁN ==================
 function duDoanTongHop(chuoi) {
   const kq = DS_THUAT_TOAN.map(fn => fn(chuoi));
   const dem = {};
@@ -172,7 +152,7 @@ function duDoanTongHop(chuoi) {
   return { tatCa: kq, tongHop: { duDoan } };
 }
 
-// ================== 🌐 API ==================
+// ================== API CHÍNH ==================
 app.get("/apibcr", async (req, res) => {
   try {
     const { data } = await axios.get(NGUON_DU_LIEU);
@@ -207,7 +187,6 @@ app.get("/apibcr", async (req, res) => {
     }
 
     luuFile(daLuu);
-
     const hienThi = Object.keys(daLuu).map(b => ({
       "Bàn": b,
       "Số phiên": daLuu[b].length,
@@ -222,6 +201,7 @@ app.get("/apibcr", async (req, res) => {
   }
 });
 
+// ================== THỐNG KÊ ==================
 app.get("/thongke", (req, res) => {
   try {
     const duLieu = docFile();
@@ -258,6 +238,4 @@ app.get("/", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Server VIP+ Baccarat đang chạy tại cổng ${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ Server VIP+ Baccarat đang chạy tại cổng ${PORT}`));
