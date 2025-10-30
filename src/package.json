@@ -1,7 +1,7 @@
 {
-  "name": "baccarat-minhsang",
-  "version": "1.0.0",
-  "description": "API Baccarat trùm dự đoán",
+  "name": "baccarat-vip-plus",
+  "version": "2.0.0",
+  "description": "API Baccarat VIP+ Việt Hóa - Markov nâng cấp, thống kê, nhiều cầu và thuật toán",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
